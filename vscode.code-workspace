@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../nts-1-customizations/Custom_Panel_RevC/Arduino"
+		},
+		{
+			"path": "../../../../.platformio/packages/framework-arduinoadafruitnrf52"
+		}
+	],
+	"settings": {}
+}
