@@ -280,7 +280,7 @@ Once the `setup()` method is finished, our `loop()` method is called repeatedly.
 ```c
 nts1_status_t nts1_idle()
 {
-  // HOST通信の復帰Check
+  // Return of HOST communication Check
   // This should be true right after executing setup()
   if (s_started) {
     // Checks if the reception buffer is not full
@@ -290,11 +290,11 @@ nts1_status_t nts1_idle()
     }
   }
   
-  // HOST I/F受信データのIdle処理を優先す
-  // as long as the reception buffer is not emptyる
+  // HOST I/F Give priority to Idle processing of received data
+  // As long as the reception buffer is not emptyる
   while (!SPI_RX_BUF_EMPTY()) {
     // Reads from the buffer and executes the handler
-    // 受信Bufferにデータあり
+    // Data in receive buffer
     s_rx_msg_handler(s_spi_rx_buf_read());
   }
 }
@@ -324,13 +324,15 @@ extern void SPI_IRQ_HANDLER()
   // see Reference Manual 28.9.3
   while ((sr = SPI_PERIPH->SR) & SPI_SR_RXNE) {
     // Take out 8 bits from the FIFO
-    rxdata = s_spi_raw_fifo_pop8(SPI_PERIPH); // DR読み出しでRXNE
+    rxdata = s_spi_raw_fifo_pop8(SPI_PERIPH); // DR read clears RXNE flag
     // And write it into the software RX buffer
     // This function only writes if the buffer has enough space to accomodate the byte
     if (!s_spi_rx_buf_write(rxdata)) {
       // If there's not enough space in the buffer
-      // this reset the index read and write indexes for the buffer
+      // this resets the index read and write indexes for the buffer
       // which will cause it to start writing into the buffer from the beginning
+      
+      // If RxBuf is full, reset it.
       SPI_RX_BUF_RESET();
     } 
     else {
@@ -340,7 +342,7 @@ extern void SPI_IRQ_HANDLER()
          // the ACK pin is set to 0
          s_port_wait_ack();
          // I assume this means the NTS1 will stop sending data
-      } else { //
+      } else { //Remaining buffer
          // otherwise the ACK pin is set to 1
          s_port_startup_ack();
          // which will allow the NTS1 to send data
@@ -349,12 +351,12 @@ extern void SPI_IRQ_HANDLER()
   }
 
   // HOST <- PANEL
-  if (!SPI_TX_BUF_EMPTY()) { // 送信Bufferにデータあり
+  if (!SPI_TX_BUF_EMPTY()) { // Send buffer has data
     // If there's data to be sent
     txdata = s_spi_tx_buf_read();
-    if (txdata & 0x80) { // Statusの時は、EndMark
+    if (txdata & 0x80) { // In Status, check whether EndMark is added.
       // and the data contains 0x80
-      if (!SPI_TX_BUF_EMPTY()) { // 送信Buffer
+      if (!SPI_TX_BUF_EMPTY()) { // There is data to be sent next in the send buffer
         // an EMARK is set on the data
         txdata |= PANEL_CMD_EMARK;
         // Note: this will set endmark on almost any status, especially those who have pending data,
@@ -364,7 +366,7 @@ extern void SPI_IRQ_HANDLER()
     // Data is sent to the Tx FIFO register
     s_spi_raw_fifo_push8(SPI_PERIPH, txdata);
   }
-  else { // 
+  else { // Set the dummy because the send buffer is empty.
     // Dummy data is sent to the TX FIFO register
     s_spi_raw_fifo_push8(SPI_PERIPH, s_dummy_tx_cmd);
   }
