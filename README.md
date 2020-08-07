@@ -123,9 +123,6 @@ The STM32 provides hardware support for SPI communication. This means that we do
 
 This saves us the hassle of controlling the timing of the messages, since sampling and shifting is taken care of and trasmitted to the FIFO queue for us.
 
-#### Interrupts
-TODO FIFO interrupts
-
 ### NTS1 init
 We'll analyse the setup process, which should give us a few clues about how the panel works.
 
