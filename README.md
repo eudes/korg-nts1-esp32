@@ -1,4 +1,9 @@
 #  Figuring out how to build a custom controller panel for the Korg NTS1
+## Or: analyzing a SPI peripheral implementation
+### Or: learning microcontroller programming by example
+
+## DISCLAIMER
+I am not associated with Korg in any way. This analysis is still a work in progress. The code here is not yet working and it might not even compile. I'm also not an expert in electronics or SoC programming. Anything I say here might be wrong, and if Korg ever publishes an official guide, you'll do better reading that, than this. This is a learning exercise.
 
 ## The reference board
 Korg provides a Open Hardware reference board, complete with a firmware that communicates with the NTS1.
@@ -11,7 +16,10 @@ a controller panel.
 So what follows is an investigation on the inner workings of the implementation and, hopefully, another implementation for either the ESP32, the nFR52840, or the ATMega2560, which are the MCUs that I have on hand.
 
 ### Links
-The particular variant of the STM32 is STM32F030R8T6.
+The NTS1 reference panel lives at:
+https://github.com/korginc/nts-1-customizations
+
+The particular variant of the STM32 used for the board is the STM32F030R8T6.
 Here's some documentation for the MCU.
 
 Homepage:
