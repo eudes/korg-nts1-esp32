@@ -406,6 +406,12 @@ An interrupt is triggered when the FIFOs are ready to be used:
 Both RXNE and TXE are flags that can be polled, or be set to trigger an interrupt, as the code here is doing for RXNE.
 
 ## A testing application
-With the information gathered, we can begin building an application in Arduino that will allow us to connect to the NTS1 controller, set our ACK pin to 1, and start receiving data.
+With the setup covered, we can begin building an application that will allow us to connect to the NTS1 controller, set our ACK pin to 1, and start receiving data.
 
+## TODO
+- Buffer management
+- Message mapping
+- Read only test app
+- Send and receive app
+- ESP32 libray
 
