@@ -1,2 +1,5 @@
 .pio
 *.code-workspace
+platformio-device-monitor*
+src/tests/
+.vscode/

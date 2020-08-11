@@ -34,6 +34,12 @@ https://www.st.com/content/ccc/resource/technical/document/reference_manual/c2/f
 The firmware does extensive use of the HAL peripheral. Here's the docs:
 https://www.st.com/resource/en/user_manual/dm00122015-description-of-stm32f0-hal-and-lowlayer-drivers-stmicroelectronics.pdf
 
+## This repo
+- docs/nts-1-customizations : the original (`nts-1-customizations` repo)[] code, with added comments and japanese sentences translated.
+- docs/hex : contains a python utility to translate hex messages into binary (0s and 1s).
+- examples/ : working examples for the topics I talk about in this page. Snippets are taken from there.
+- src/ : my latest progress, the code that gets uploaded to my ESP32. Code that works is taken from here and put into `examples/.
+
 ## The reference firmware
 The reference code is provided in two parts:
 - `nts1_iface.c` and `nts1_iface.h`: The STM32-specific implementation (Arduino/variants/NTS1_REF_CP_REVC).
@@ -291,7 +297,7 @@ nts1_status_t nts1_idle()
   }
   
   // HOST I/F Give priority to Idle processing of received data
-  // As long as the reception buffer is not emptyる
+  // As long as the reception buffer is not empty
   while (!SPI_RX_BUF_EMPTY()) {
     // Reads from the buffer and executes the handler
     // Data in receive buffer
@@ -349,6 +355,7 @@ extern void SPI_IRQ_HANDLER()
       }
     }
   }
+  // now the rx FIFO is empty (the RXNE flag has cleared)
 
   // HOST <- PANEL
   if (!SPI_TX_BUF_EMPTY()) { // Send buffer has data
@@ -410,10 +417,336 @@ Both RXNE and TXE are flags that can be polled, or be set to trigger an interrup
 ## A testing application
 With the setup covered, we can begin building an application that will allow us to connect to the NTS1 controller, set our ACK pin to 1, and start receiving data.
 
-## TODO
-- Buffer management
-- Message mapping
-- Read only test app
-- Send and receive app
-- ESP32 libray
+### ESP32 programming with platformio and espidf
+I'll base my test application on the ESP32 MCU, using platformio with the ESP IDF. This means that I won't be producing any Arduino code for now, and I'll program directly against the ESP32 specific libraries. Doing this will simplify the design of the test app, given that most MCUs come with development kits that contain working examples for using their different peripherals, SPI included.
 
+I'll use platformio instead of the barebones ESP IDF because a package manager + build tool that does most of the heavy lifting out of the box is a great addition to any toolbelt. It'll simplify installing and using the tools needed to flash the chip and install vendor libraries.
+
+You can find all the information you need on how to start a new platformio project for the ESP32 here: https://docs.platformio.org/en/latest/platforms/espressif32.html
+
+### Identifying the NTS1 pins
+Before we start building the test app, we need to identify the pins the NTS1 uses for SPI communication and ACK.
+
+Looking at the included schematic for the reference panel, we can see that the headers used to connect to the NTS1 one are labelled "MAIN CONNECTOR". There are 2 rows of pins, labelled CN2 and CN7, and their pins are named as follows:
+Header | Pin N | Name       | STM32 Pin
+-------| ----- | ---------- | ---------
+CN2    | 1     | GND        | -
+CN2    | 2     | 3V3        | -
+CN2    | 5     | PANEL_ACK  | PB12
+CN2    | 7     | GND        | -
+CN7    | 1     | GND        | -
+CN7    | 2     | CK_PNL     | PB13 (SPI2_SCK)
+CN7    | 3     | RX_PNL     | PB15 (SPI2_MOSI)
+CN7    | 4     | TX_PNL     | PB14 (SPI2_MISO)
+CN7    | 5     | RESET_PNL  | -
+CN7    | 6     | BOOT_PNL   | -
+CN7    | 7     | GND        | -
+
+From looking at the Gerber files (and a video that I can't seem to find now), it seems CN2 corresponds to the left side header in the NTS1. Pins start from 1 to 7, bottom side first (closer to the headphone jack). Testing with an LED between the left hand side bottommost pin (CN21) and other pins confirms this hypothesis.
+
+So, we'll use the following pins (in the NTS1):
+- LHS2: 3V3
+- LHS5: ACK
+- RHS1: GND 
+- RHS2: SPI_CLK
+- RHS3: SPI_RX (MOSI)
+- RHS4: SPI_TX (MISO)
+
+ESP32 (Sparkfun Thing plus):
+NTS1   | GPIO    | Name      
+-------| ------- | --------
+LHS2   | 3V3     | 3V3     
+LHS5   | 22      | PANEL_ACK  
+RHS1   | GND     | GND      
+RHS2   | 18      | CK_PNL   
+RHS3   | 23      | MOSI     
+RHS4   | 19      | MISO     
+
+Using SPI3 (VSPI) as slave.
+
+Header | Pin N | Name       | STM32 Pin
+-------| ----- | ---------- | ---------
+CN2    | 1     | GND        | -
+CN2    | 2     | 3V3        | -
+CN2    | 5     | PANEL_ACK  | PB12
+CN2    | 7     | GND        | -
+CN7    | 1     | GND        | -
+CN7    | 2     | CK_PNL     | PB13 (SPI2_SCK)
+CN7    | 3     | RX_PNL     | PB15 (SPI2_MOSI)
+CN7    | 4     | TX_PNL     | PB14 (SPI2_MISO)
+CN7    | 5     | RESET_PNL  | -
+CN7    | 6     | BOOT_PNL   | -
+CN7    | 7     | GND        | -
+
+### Modifying the "SPI slave" example project
+The ESP32 IDF comes with an example for SPI slave mode, which we'll use as a base for the test application.
+https://github.com/espressif/esp-idf/tree/master/examples/peripherals/spi_slave/receiver/main
+
+This the modified example. It uses the ESP32 IDF spi-slave driver to configure the device and stablish a SPI connection. Things to take into account:
+- It uses the IO_MUX pins for SPI, so that communication doesn't get delayed by the GPIO matrix. This seems important, I tried without it and the messages didn't produce anything clear.
+- We are changing the default bit order to LSB, like the reference panel does.
+- The example also includes a handshake/ACK routine, so that's nice, although it might work in a different way. Using the default for now seems to produce some results.
+- The ESP32 SPI driver doesn't have a "software" CS pin, nor does it work without it. I couldn't identify a CS pin in the NTS1, so instead I leave it always on by enabling the pulldown resistor for that pin.
+
+`examples/0-log-received.main.c`
+```c
+...
+while(1){
+        //Clear receive buffer
+        memset(s_spi_rx_buf, 0x0, SPI_RX_BUF_SIZE);
+        memset(s_spi_tx_buf, 0x0, SPI_TX_BUF_SIZE);
+
+        //Set up a transaction of 128 bytes to send/receive
+        t.length=SPI_RX_BUF_SIZE*4;
+        t.tx_buffer=s_spi_tx_buf;
+        t.rx_buffer=s_spi_rx_buf;
+
+        /* This call enables the SPI slave interface to send/receive to the sendbuf and recvbuf. The transaction is
+        initialized by the SPI master, however, so it will not actually happen until the master starts a hardware transaction
+        by pulling CS low and pulsing the clock etc. In this specific example, we use the handshake line, pulled up by the
+        .post_setup_cb callback that is called as soon as a transaction is ready, to let the master know it is free to transfer
+        data.
+        */
+        ret=spi_slave_transmit(RCV_HOST, &t, portMAX_DELAY);
+
+        //spi_slave_transmit does not return until the master has done a transmission, so by here we have sent our data and
+        //received data from the master. Print it.
+        uint8_t* cp = s_spi_rx_buf;
+        for (uint8_t i = 0; i < SPI_RX_BUF_SIZE; ++cp)
+        {
+            printf("%02x", *cp);
+            i += 1;
+        }
+        printf("\n\n");
+}
+...
+```
+
+### The Rx handler
+In order to understand the messages that the NTS1 will be sending, we need to start looking at the actual message handler:
+```c
+
+// These are constants that will be used in the method
+
+#define PANEL_ID_MASK    0x38  // Bits 3-5 // 00111000 
+#define PANEL_CMD_EMARK  0x40  // Bit  6   // 01000000
+#define PANEL_START_BIT  0x80  // Bit  7   // 10000000
+
+static uint8_t  s_panel_id = PANEL_ID_MASK; // Bits 3-5 "ppp"="111"
+static uint8_t  s_dummy_tx_cmd = (PANEL_ID_MASK + 0xC7); // B'11ppp111;
+
+enum {
+  k_rx_cmd_event = 0x84U, // 10000100
+  k_rx_cmd_param = 0x85U, // 10000101
+  k_rx_cmd_other = 0x86U, // 10000110
+  k_rx_cmd_dummy = 0x87U  // 10000111
+};
+
+// This is the handler itself
+static void s_rx_msg_handler(uint8_t data)
+{
+  // data is 1 byte of the input buffer
+  // If data byte starts with 10000000
+  if (data >= 0x80) {
+    // Status byte
+    // resets the counter
+    s_panel_rx_data_cnt = 0;
+    // data = data AND not(PANEL_CMD_EMARK)
+    // PANEL_CMD_EMARK is 01000000
+    // not(PANEL_CMD_EMARK) is 10111111
+    // so, the following discards the bit at position 6 (starting from pos 0)
+    data &= ~PANEL_CMD_EMARK;
+
+    if (data == 0xBEU) { // 10111110:Panel ID allocation
+      // if data == 1x111110
+      s_panel_rx_status = data & ~PANEL_ID_MASK; // discards bits 3,4 and 5
+      //s_panel_rx_status  = 10111110 * 11000111 => 10000110
+    } else if (
+      (data & PANEL_ID_MASK) // bits 3 4 5 of data (00xxx000)
+      == 
+      (s_panel_id & PANEL_ID_MASK) // 00111000
+      ) { // if data contains (xx111xxx)
+      s_panel_rx_status = data & ~PANEL_ID_MASK; // produces 1x000xxx
+    } else {
+      s_panel_rx_status = 0;  // cancel any previous command reception
+    }
+    // exits the method to parse next byte
+    return;
+  }
+  // the previous section stores in s_panel_rx_status the first byte
+  // received, identified by having its first bit set to 1 (1xxxxxxx)
+  // and it processes it to discard irrelevant data
+
+  // Relevant statuses:
+  // if data == 1x111110 => active_cmd = 10000110
+  // if data == 1x111xxx => active_cmd = 10000xxx
+  // otherwise, command is discarded
+  
+  // Stored status byte
+  const uint8_t active_cmd = s_panel_rx_status;
+  
+  // Now we process bytes that don't start with 1
+  switch (active_cmd) {
+  case k_rx_cmd_event: // 1x111 100
+    // ...does stuff
+    break;
+  case k_rx_cmd_param: // 1x111 101
+    // ...does stuff
+    break;
+  case k_rx_cmd_other: // 1x111 110
+    // ...does stuff
+    break;
+  case k_rx_cmd_dummy: // 10000111
+    // continues to default
+  default:
+    // resets
+    s_panel_rx_status = 0;    // Clear save status
+    s_panel_rx_data_cnt = 0; // Initialize data count
+    break;
+  }
+}
+```
+
+It looks like it reads the line byte by byte, waiting for a valid status byte to be received, which must have a predefined format, and then continues to process more bytes for each of those command. Once the handler has a valid status byte saved, it continues to process the following bytes, differently for every command.
+
+### Command messages
+The once thing command messages do have in common is the format of the first bytes:
+```
+      /*++++++++++++++++++++++++++++++++++++++++++++++
+        CMD4 : Event
+        1st    :[1][0][ppp][100]
+        2nd    :[0][sssssss] Size
+        3rd    :[0][eeeeeee] Event ID
+        4th    :[0][ddddddd] Data word
+        ...
+        +++++++++++++++++++++++++++++++++++++++++++++*/
+```
+- 1st is always the status byte/command selector
+- 2nd is always the size of the message
+- 3rd is the sub-command or event ID
+- 4th is data associated to that command
+
+### Finding status bytes
+As we saw before, the handler follows these rules to tell apart status bytes from other bytes:
+- Statuses start with 1
+- The very next bit is always discarded.
+- It accepts any message that conforms to this format: 1x111xxx.
+- It accepts one particular message (1x111110), that is for some reason treated differently.
+
+We can translate the hex strings into binary bytes and look for 1x111xxx.To make it easier, we can use a regex for that: /1[0-1]111[0-1]{3}/. 
+
+However, in my many attempts to receive something intelligible from the NTS1, I did not achieve this. I did get to send note-on messages and make it sound, though.
+
+#### A tribute to lost time
+I'm making an aside here to say that, when I got to this point of the analysis (reading the data from the NTS1), I lost a couple of evenings because, of pin misnomer (MISO for MOSI etc.), and because, apparently, you cannot simply connect your ground to any of the available grounds. I only managed to make it work when I connected the RHS pin 1 ground to my ground. The rest of them (which I assumed should have worked the same), did not work properly. I guess, even though they are sent to ground **in the reference panel**, they are not connected to ground in the NTS1.
+
+So, here, toast with me to lost time and lessons (eventually) learned.
+
+This is also why I went into detail about the Commands before. Given that we are not actually getting any interesting commands, the next thing to do is to test that we can send commands to the NTS1 and see if it does anything.
+
+### Sending commands
+Once we have the base SPI connection working, we can start sending messages to test that the NTS1 receives them. 
+
+We saw in the Interrupt handler that the reference panel writes commands from its software buffer to the TX FIFO. These messages are put into the software user by the user, by calling one of the public methods in the `nts1_iface.h` class, or one of its equivalents in the arduino library (`nts-1.h`). We can follow the trace of one of these methods grab an example message. The most obvious one to try first is the `note_on` message, since that will make the NTS1 bleep and bloop for us.
+
+```c
+
+nts1_status_t nts1_note_on(uint8_t note, uint8_t velo) {
+  nts1_tx_event_t event;
+  event.event_id = k_nts1_tx_event_id_note_on;
+  event.msb = note & 0x7F;
+  event.lsb = velo & 0x7F;
+  return nts1_send_event(&event); 
+}
+static inline nts1_status_t nts1_send_event(nts1_tx_event_t *event) {
+  return nts1_send_events(event, 1);
+}
+ 
+nts1_status_t nts1_send_events(nts1_tx_event_t *events, uint8_t count)
+{
+  assert(events != NULL);
+  for (uint8_t i=0; i < count; ++i) {
+    if (!s_tx_cmd_event(&events[i], (i == count-1))) {
+      return k_nts1_status_busy;
+    }
+  }
+  return k_nts1_status_ok;
+}
+
+static uint8_t s_tx_cmd_event(const nts1_tx_event_t *event, uint8_t endmark) 
+{
+  assert(event != NULL);
+  if (!s_spi_chk_tx_buf_space(4)) 
+     return false;
+  // if (s_panel_id & PANEL_ID_MASK) + (endmark) > 0, add PANEL_CMD_EMARK bit to the 
+  // command byte
+  const uint8_t cmd = (s_panel_id & PANEL_ID_MASK) + (endmark) ? (k_tx_cmd_event | PANEL_CMD_EMARK) : k_tx_cmd_event; 
+  s_spi_tx_buf_write(cmd);
+  // mask out the Most Significant bit, just in case I guess, so it
+  // doesn't get confused with a command byte
+  s_spi_tx_buf_write(event->event_id & 0x7F);
+  s_spi_tx_buf_write(event->msb & 0x7F);
+  s_spi_tx_buf_write(event->lsb & 0x7F);
+  return true;
+}
+// writes the byte to the buffer at the appropiate position
+// and moves the buffer pointers
+static void s_spi_tx_buf_write(uint8_t data)
+{
+  s_spi_tx_buf[SPI_TX_BUF_MASK & s_spi_tx_widx] = data;
+  s_spi_tx_widx = SPI_BUF_INC(s_spi_tx_widx, SPI_TX_BUF_SIZE);
+}
+
+```
+
+The logic here is straight forward: a call to the nts1_note_on(note, velocity) method will start chain of methods that will format the message appropiately and manage the internal status of the firmware.
+
+The bytes that end up in the buffer are:
+- s_spi_tx_buf[0] = 196; // note on command, with ENDMARK
+- s_spi_tx_buf[1] = 1; // size, pressumably  // TODO this seems wrong
+- s_spi_tx_buf[2] = note; // note number (0-127)
+- s_spi_tx_buf[3] = 107;  // velocity
+
+### Putting it together
+With this we can test our assumptions and build a firmware that will send note-on mesages from our controller.
+
+`examples/1-note-on.main.c`
+```c
+...
+        // every 21 iterations, send a note on message
+        if (n%21 == 0) {
+            s_spi_tx_buf[0] = 196;
+
+            s_spi_tx_buf[1] = 1;
+            s_spi_tx_buf[2] = note;
+            s_spi_tx_buf[3] = 10;
+
+            // if we get to the max number, change the direction
+            if(note == 127){
+               increase = 0;
+            }
+            if(note == 20) {
+                increase = 1;
+            }
+            // increase or decrease the note number
+            note = increase ? note + 1 : note - 1;
+        }
+
+        //Set up a transaction of 128 bytes to send/receive
+        t.length=SPI_RX_BUF_SIZE*4;
+        t.tx_buffer=s_spi_tx_buf;
+        t.rx_buffer=s_spi_rx_buf;
+
+        ret=spi_slave_transmit(RCV_HOST, &t, portMAX_DELAY);
+...
+```
+------
+
+## Next steps
+The code as is is not very efficient, and I get glitches from time to time. I'm not convinced that I'm getting the messages as they are being sent. I'm waiting for a logic analyzer to arrive so that I can debug the SPI timing.
+
+- Debug SPI timing.
+- Test more messages.
+- Work on separating the not-STM32-specific stuff into another class, and using the resulting library in the project.
+- Maybe try to propose the changes to the main `nts-1-customizations` repo? Or publish this as a separate library so that it can be used in ESP32 platformio projects.
+- Build an instrument with some sensors and a screen as a proof of concept.
