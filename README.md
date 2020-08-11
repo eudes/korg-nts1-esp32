@@ -3,14 +3,13 @@
 ### Or: learning microcontroller programming by example
 
 ## DISCLAIMER
-I am not associated with Korg in any way. This analysis is still a work in progress. The code here is not yet working and it might not even compile. I'm also not an expert in electronics or SoC programming. Anything I say here might be wrong, and if Korg ever publishes an official guide, you'll do better reading that, than this. This is a learning exercise.
+I am not associated with Korg in any way. This analysis is still a work in progress. The code here might not work for you. I'm also not an expert in electronics or SoC programming. Anything I say here might be wrong, and if Korg ever publishes an official guide, you'll do better reading that, than this. This is a learning exercise.
 
 ## The reference board
-Korg provides a Open Hardware reference board, complete with a firmware that communicates with the NTS1.
+Korg provides an Open Hardware reference board, complete with a firmware that communicates with the NTS1.
 The board is based on a STM32, and that's the only microcontroller that is supported by the provided libraries.
 
-I don't happen to have a STM32 laying around, and my goal is more towards figuring out the communication protocol and
-learning about lower level (C/C++) microcontroller programming, than implementing any particular design for
+I don't happen to have a STM32 laying around, and my goal is more towards figuring out the communication protocol and learning about lower level (C/C++) microcontroller programming, than implementing any particular design for
 a controller panel.
 
 So what follows is an investigation on the inner workings of the implementation and, hopefully, another implementation for either the ESP32, the nFR52840, or the ATMega2560, which are the MCUs that I have on hand.
@@ -35,7 +34,7 @@ The firmware does extensive use of the HAL peripheral. Here's the docs:
 https://www.st.com/resource/en/user_manual/dm00122015-description-of-stm32f0-hal-and-lowlayer-drivers-stmicroelectronics.pdf
 
 ## This repo
-- docs/nts-1-customizations : the original (`nts-1-customizations` repo)[] code, with added comments and japanese sentences translated.
+- docs/nts-1-customizations : the original [`nts-1-customizations` repo](https://github.com/korginc/nts-1-customizations) code, with added comments and japanese sentences translated.
 - docs/hex : contains a python utility to translate hex messages into binary (0s and 1s).
 - examples/ : working examples for the topics I talk about in this page. Snippets are taken from there.
 - src/ : my latest progress, the code that gets uploaded to my ESP32. Code that works is taken from here and put into `examples/.
@@ -482,7 +481,7 @@ CN7    | 7     | GND        | -
 The ESP32 IDF comes with an example for SPI slave mode, which we'll use as a base for the test application.
 https://github.com/espressif/esp-idf/tree/master/examples/peripherals/spi_slave/receiver/main
 
-This the modified example. It uses the ESP32 IDF spi-slave driver to configure the device and stablish a SPI connection. Things to take into account:
+This the modified example. It uses the ESP32 IDF spi-slave driver to configure the device and establish a SPI connection. Things to take into account:
 - It uses the IO_MUX pins for SPI, so that communication doesn't get delayed by the GPIO matrix. This seems important, I tried without it and the messages didn't produce anything clear.
 - We are changing the default bit order to LSB, like the reference panel does.
 - The example also includes a handshake/ACK routine, so that's nice, although it might work in a different way. Using the default for now seems to produce some results.
@@ -610,7 +609,7 @@ static void s_rx_msg_handler(uint8_t data)
 It looks like it reads the line byte by byte, waiting for a valid status byte to be received, which must have a predefined format, and then continues to process more bytes for each of those command. Once the handler has a valid status byte saved, it continues to process the following bytes, differently for every command.
 
 ### Command messages
-The once thing command messages do have in common is the format of the first bytes:
+The one thing command messages do have in common is the format of the first bytes:
 ```
       /*++++++++++++++++++++++++++++++++++++++++++++++
         CMD4 : Event
@@ -635,7 +634,7 @@ As we saw before, the handler follows these rules to tell apart status bytes fro
 
 We can translate the hex strings into binary bytes and look for 1x111xxx.To make it easier, we can use a regex for that: /1[0-1]111[0-1]{3}/. 
 
-However, in my many attempts to receive something intelligible from the NTS1, I did not achieve this. I did get to send note-on messages and make it sound, though.
+However, in my many attempts to receive something intelligible from the NTS1, I failed misserably. I supect my SPI timing is a bit off. I did get to send note-on messages and make it sound, though.
 
 #### A tribute to lost time
 I'm making an aside here to say that, when I got to this point of the analysis (reading the data from the NTS1), I lost a couple of evenings because, of pin misnomer (MISO for MOSI etc.), and because, apparently, you cannot simply connect your ground to any of the available grounds. I only managed to make it work when I connected the RHS pin 1 ground to my ground. The rest of them (which I assumed should have worked the same), did not work properly. I guess, even though they are sent to ground **in the reference panel**, they are not connected to ground in the NTS1.
