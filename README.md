@@ -759,7 +759,7 @@ With this we can test our assumptions and build a firmware that will send note-o
 ------
 
 ## Next steps
-The code as is is not very efficient, and I get glitches from time to time. I'm not convinced that I'm getting the messages as they are being sent. I'm waiting for a logic analyzer to arrive so that I can debug the SPI timing.
+The code as-is is not very efficient, and I get glitches from time to time. I'm not convinced that I'm getting the messages as they are being sent. I'm waiting for a logic analyzer to arrive so that I can debug the SPI timing.
 
 - ~~Debug SPI timing.~~ Now working properly (in src/main.c)
 - Fix the examples with the latest changes.
