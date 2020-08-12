@@ -388,7 +388,10 @@ The following are the only two places where direct access to the FIFO registers 
 static inline void s_spi_raw_fifo_push8(SPI_TypeDef* SPIx, uint8_t data)
 {
   // SPIx is a pointer, so will a contain a memory address of the SPI device
-  // 0x0C is the offset of the Data Register with respect to the SPI device
+  // 0x0C is the offset of the Data Register with respect to the SPI device.
+  // The casting "(uint32_t)" is necessary here because SPIx is a pointer address,
+  // but it's trying to save it into a non-pointer variable. The compiler won't allow
+  // this unless you force it by doing the casting.
   const uint32_t spix_dr = (uint32_t)SPIx + 0x0C;
   // spix_dr is the address of the SPIX_DR data register
   // Reading from this address will return the oldest frame of data from the Rx FIFO
@@ -396,6 +399,13 @@ static inline void s_spi_raw_fifo_push8(SPI_TypeDef* SPIx, uint8_t data)
 
   // In this case, we are writing to it
   *(__IO uint8_t *) spix_dr = data;
+  // *(__IO uint8_t *) spix_dr = data means:
+  // - (__IO uint8_t *) spix_dr: cast spidx_dr to a pointer (*) of type __IO uint8_t
+  // - first "*": derreference the pointer we just casted and
+  // - "= data": assign the value of data to the derefferenced location
+  // In other words, it's equivalent to:
+  // __IO uint8_t *ptr_spix_dr = (__IO uint8_t *) spix_dr; // again, casting to change from uint to *uint
+  // *ptr_spix_dr = data;
 }
 
 static inline uint8_t s_spi_raw_fifo_pop8(SPI_TypeDef* SPIx)
@@ -476,6 +486,13 @@ CN7    | 4     | TX_PNL     | PB14 (SPI2_MISO)
 CN7    | 5     | RESET_PNL  | -
 CN7    | 6     | BOOT_PNL   | -
 CN7    | 7     | GND        | -
+
+### Finding the clock frequency
+The NTS1 starts the clock when the ACK pin is on. We can use this to obtain the clock frequency by using a logic analyzer and PulseView or an oscilloscope. I went with a very cheap 24MHz logic analyzer (10€ with fast shipping, cheaper if you're willing to wait and order in AliExpress or Ebay).
+
+I set the NTS1 ACK pin to +3v3, and connected the logic analyzer to the CLK pin. The period of the clock is 1us, which means that the frequency is 1MHz. This is good news because:
+- The ESP32 can accept clock frequencies from 2.5KHz to 10MHz.
+- The speed is not very high, so most oscilloscopes and logic analyzers should be able to deal with it easily.
 
 ### Modifying the "SPI slave" example project
 The ESP32 IDF comes with an example for SPI slave mode, which we'll use as a base for the test application.
@@ -744,8 +761,36 @@ With this we can test our assumptions and build a firmware that will send note-o
 ## Next steps
 The code as is is not very efficient, and I get glitches from time to time. I'm not convinced that I'm getting the messages as they are being sent. I'm waiting for a logic analyzer to arrive so that I can debug the SPI timing.
 
-- Debug SPI timing.
+- ~~Debug SPI timing.~~ Now working properly (in src/main.c)
+- Fix the examples with the latest changes.
+- Add some info on how I used Pulseview to debug the wiring.
+- Add a proper diagram for the connections.
+- Test whether making all the connections present in the schematics is necessary.
 - Test more messages.
 - Work on separating the not-STM32-specific stuff into another class, and using the resulting library in the project.
 - Maybe try to propose the changes to the main `nts-1-customizations` repo? Or publish this as a separate library so that it can be used in ESP32 platformio projects.
 - Build an instrument with some sensors and a screen as a proof of concept.
+
+-----
+
+# Notes for people not used to C
+Like me.
+
+- `#define X`: this is a **preprocessor** macro, meaning that anything you define like this will not be stored in a variable. Instead the **preprocessor** will change references to it into the actual value in your code before compiling it.
+- `int* pc; int c; c = 5; pc = &c;`: assign to `pc` the address of the variable `c`.
+- `int* pc, c; c = 5; pc = &c; printf("%d", *pc);`: Output: 5. `*pc` derreferences (get the value) of the memory location pointed by `pc`.
+- `int* pc, c; c = 5; pc = &c; *pc = 1; printf("%d", *pc); /* Ouptut: 1 */ printf("%d", c); // Output: 1`: you can write to the location pointed by a pointer by using derreference assignation.
+- `int* pc = 0xFFu; int c; c = (int) pc; int* p2 = &c; printf("%x, %x", c, *p2) //Out: FF, FF`: You cannot store a memory address directly in a non-pointer variable, you need to cast it.
+- `*((uint_32 int *) non_pointer_with_address) = value;`: Writing to the memory address stored in a non-pointer variable.
+- `int p[] = {'a','b'}; p[1] == *(p + 1)`: An array is a pointer to a location in memory.
+- `int * REG_GPIO_BASE = 0x0u; int REG_GPIO_SETTINGS; REG_GPIO[REG_GPIO_SETTINGS] |= (1u << 1)`: You can use array notation on a pointer to access offsets from a location in memory.
+- `volatile int x`. Volatile variables tell the compiler that the value of the variable might change without the program making it so (eg: a register that contains the state of a gpio pin). This avoids compiler optimizations that might bypass storing the variable in memory, and thus break your code.
+- Logic vs arithmetic (right) shifting: negative signed numbers (int8_t) behave differently from unsigned numbers (uint8_t) when performing bitwise right shifting.
+- Logic right shifting: Unsigned numbers get logically shifted. `128 (10000000) >> 1` => `01000000`.
+- Arithmetic right shifting: Signed negative numbers numbers get arithmetically shifted. `-64 (11000000) >> 1` => `11100000`.
+- `(1u << 3)` => `00001000`: Single bit representation.
+- `REG_X |= (1u << 3)`: sets the 4th bit (bit 3) of REG_X to 1.
+- `REG_X &= ~(1u << 3)`: (un)sets the 4th bit (bit 3) of REG_X to 0.
+- These last idioms are often optimized in the compiler into faster operations than doing the whole calculation, using a Bit Set or Bit Clear instructions instead of the operation, so it's preferrable to use them.
+- Interrupts can happen between **processor** instructions. Meaning that even if you wrote a single statement, the processor can be still in the middle of excuting that statement when it gets interrupted, because your statement may get translated into several processor instructions. This is particularly important when setting bits in registers, as this often gets compiled into 3 instructions (or more).
+- To avoid this happening when changing registers, you can use **atomic operations**. An assignment of a value that is equals or smaller (in bits) than the size of a single memory address, eg: 32bits for a a 32bit memory; is a atomic operation. This is not universal, C doesn't guarantee it.

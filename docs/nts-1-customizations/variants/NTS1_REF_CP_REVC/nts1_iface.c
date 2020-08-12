@@ -158,11 +158,16 @@ static inline void s_port_startup_ack(void)
 {
   // This sets the ACK_PIN GPIO pin to 1
   // ACK_PORT is the GPIO device (of which the STM32 has 2)
-  // BSRR is the Bit Set Register
-  // Setting this register will write to the GPIO pin
+  // BSRR is the Bit Set Reset Register.
+  // Setting one or more bits in this register will write to the
+  // corresponding GPIO pin.
   // This is an atomic operation (takes 1 system clock tick),
-  // as oppossed to calling a method which would take more time
+  // as oppossed to setting 1 bit in general GPIO register,
+  // which would force the CPU to first read the GPIO register,
+  // perform the bitwise operation, and then set the GPIO register
+  // again.
   ACK_PORT->BSRR = ACK_PIN;
+  // NOTE: C doesn't guarantee that operations will be atomic.
 }
 
 static inline void s_port_wait_ack(void)
@@ -173,11 +178,13 @@ static inline void s_port_wait_ack(void)
 }
 
 // ----------------------------------------------------
-
 static inline void s_spi_raw_fifo_push8(SPI_TypeDef* SPIx, uint8_t data)
 {
   // SPIx is a pointer, so will a contain a memory address of the SPI device
-  // 0x0C is the offset of the Data Register with respect to the SPI device
+  // 0x0C is the offset of the Data Register with respect to the SPI device.
+  // The casting "(uint32_t)" is necessary here because SPIx is a pointer address,
+  // but it's trying to save it into a non-pointer variable. The compiler won't allow
+  // this unless you force it by doing the casting.
   const uint32_t spix_dr = (uint32_t)SPIx + 0x0C;
   // spix_dr is the address of the SPIX_DR data register
   // Reading from this address will return the oldest frame of data from the Rx FIFO
@@ -185,14 +192,13 @@ static inline void s_spi_raw_fifo_push8(SPI_TypeDef* SPIx, uint8_t data)
 
   // In this case, we are writing to it
   *(__IO uint8_t *) spix_dr = data;
-}
-
-static inline uint8_t s_spi_raw_fifo_pop8(SPI_TypeDef* SPIx)
-{
-  const uint32_t spix_dr = (uint32_t)SPIx + 0x0C;   
-
-  // In this case, we are reading it
-  return *(__IO uint8_t *) spix_dr;
+  // *(__IO uint8_t *) spix_dr = data means:
+  // - (__IO uint8_t *) spix_dr: cast spidx_dr to a pointer (*) of type __IO uint8_t
+  // - first "*": derreference the pointer we just casted and
+  // - "= data": assign the value of data to the derefferenced location
+  // In other words, it's equivalent to:
+  // __IO uint8_t* ptr_spix_dr = (__IO uint8_t *) spix_dr; // again, casting to change from uint to *uint
+  // *ptr_spix_dr = data;
 }
 
 static uint8_t s_spi_chk_rx_buf_space(uint16_t size)

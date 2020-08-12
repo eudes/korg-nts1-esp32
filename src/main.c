@@ -80,11 +80,12 @@ typedef struct __nts1_cmd_header {
 
 #define SPI_MODE 3
 #define SPI_BITORDER SPI_SLAVE_BIT_LSBFIRST
-#define GPIO_MOSI 23  // G
-#define GPIO_HANDSHAKE 16 // R
-#define GPIO_MISO 19  // O  
-#define GPIO_SCLK 18  // Y
+#define GPIO_SCLK 18  // SCK
+#define GPIO_MOSI 23  // RX_PANEL
+#define GPIO_MISO 19  // TX_PANEL  
+#define GPIO_HANDSHAKE 21 // ACK
 #define GPIO_CS 5     // - None
+#define SPI_FRAME_SIZE 8
 
 #ifdef CONFIG_IDF_TARGET_ESP32
 
@@ -107,11 +108,12 @@ typedef struct __nts1_cmd_header {
 #define SPI_RX_BUF_SIZE (32)
 #define SPI_RX_BUF_MASK (SPI_RX_BUF_SIZE - 1)
 
-static uint8_t  s_spi_tx_buf[SPI_TX_BUF_SIZE];
+WORD_ALIGNED_ATTR  uint8_t  s_spi_tx_buf[SPI_TX_BUF_SIZE];
+WORD_ALIGNED_ATTR uint8_t  s_spi_rx_buf[SPI_RX_BUF_SIZE];
+
 static uint16_t s_spi_tx_ridx;  // Read  Index (from s_spi_tx_buf)
 static uint16_t s_spi_tx_widx;  // Write Index (to s_spi_tx_buf)
 
-static uint8_t  s_spi_rx_buf[SPI_RX_BUF_SIZE];
 static uint16_t s_spi_rx_ridx;  // Read  Index (from s_spi_rx_buf)
 static uint16_t s_spi_rx_widx;  // Write Index (to s_spi_rx_buf)
 
@@ -181,6 +183,9 @@ esp_err_t spi_init() {
     // Pull down on the Chip Select pin to make it always on
     gpio_set_pull_mode(GPIO_CS, GPIO_PULLDOWN_ONLY);
 
+    // Pull the SCK line up (CPOL = 1, normally high)
+    gpio_set_pull_mode(GPIO_CS, GPIO_PULLDOWN_ONLY);
+
     //Initialize SPI slave interface
     return spi_slave_initialize(RCV_HOST, &buscfg, &slvcfg, DMA_CHAN);
 }
@@ -193,6 +198,7 @@ void app_main(void)
     gpio_init();
     esp_err_t ret = spi_init();
     assert(ret==ESP_OK);
+
 
     memset(s_spi_rx_buf, 0, SPI_RX_BUF_SIZE);
     spi_slave_transaction_t t;
@@ -213,18 +219,18 @@ void app_main(void)
             s_spi_tx_buf[3] = s_dummy_tx_cmd;
         }
 
-        // every 21 iterations, send a note on message
-        if (n%21 == 0) {
-            s_spi_tx_buf[0] = 196;
+        if (n>=2) {
+            s_spi_tx_buf[0] = 196; // 11000100
             s_spi_tx_buf[1] = 1;
             s_spi_tx_buf[2] = note;
-            s_spi_tx_buf[3] = 10;
+            s_spi_tx_buf[3] = 80;
+
 
             // if we get to the max number, change the direction
-            if(note == 127){
-               increase = 0;
+            if (note == 127) {
+                increase = 0;
             }
-            if(note == 20) {
+            if (note == 20) {
                 increase = 1;
             }
             // increase or decrease the note number
