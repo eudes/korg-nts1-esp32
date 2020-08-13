@@ -2,3 +2,4 @@
 	path = lib/nts-1-customizations
 	url = git@github.com:eudes/nts-1-customizations.git
 	branch = platformio-library-issue
+	update = rebase
