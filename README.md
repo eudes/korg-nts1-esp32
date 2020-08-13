@@ -758,6 +758,13 @@ With this we can test our assumptions and build a firmware that will send note-o
 ```
 ------
 
+## Refactoring for multiple architecture support
+In order to make the original Arduino libray work for both the ESP32 and the STM32, we need first to refactor the original to select the appropiate implementation at compile time.
+
+### 
+
+------
+
 ## Next steps
 The code as-is is not very efficient, and I get glitches from time to time. I'm not convinced that I'm getting the messages as they are being sent. I'm waiting for a logic analyzer to arrive so that I can debug the SPI timing.
 
