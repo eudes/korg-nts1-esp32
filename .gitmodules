@@ -1,3 +1,5 @@
 [submodule "lib/nts-1-customizations"]
 	path = lib/nts-1-customizations
 	url = git@github.com:eudes/nts-1-customizations.git
+	branch = master
+	update = rebase
