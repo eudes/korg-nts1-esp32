@@ -90,6 +90,7 @@
                 "/home/eudes/.platformio/packages/framework-espidf/components/unity/include",
                 "/home/eudes/.platformio/packages/framework-espidf/components/unity/unity/src",
                 "/home/eudes/.platformio/packages/framework-espidf/components/wifi_provisioning/include",
+                "/home/eudes/personal/embedded/nts1/korg-nts1-lib/lib/nts-1-customizations",
                 "/home/eudes/.platformio/packages/tool-unity",
                 ""
             ],
@@ -180,6 +181,7 @@
                     "/home/eudes/.platformio/packages/framework-espidf/components/unity/include",
                     "/home/eudes/.platformio/packages/framework-espidf/components/unity/unity/src",
                     "/home/eudes/.platformio/packages/framework-espidf/components/wifi_provisioning/include",
+                    "/home/eudes/personal/embedded/nts1/korg-nts1-lib/lib/nts-1-customizations",
                     "/home/eudes/.platformio/packages/tool-unity",
                     ""
                 ]
