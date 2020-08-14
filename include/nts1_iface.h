@@ -1,0 +1,1 @@
+/home/eudes/personal/embedded/nts1/korg-nts1-lib/lib/nts-1-customizations/Custom_Panel_RevC/Arduino/variants/NTS1_REF_CP_REVC/nts1_iface.h

@@ -27,7 +27,7 @@
     For more information, please refer to <http://unlicense.org/>
 //*/
 
-#include <Arduino.h>
+//#include <Arduino.h>
 
 // --- NTS-1 main board interface ------------------------------------------------------------------
 #include <nts-1.h>
