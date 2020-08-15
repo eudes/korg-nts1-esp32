@@ -22,9 +22,59 @@
 
 #include "nts1_iface.h"
 
-void psts(char* message, uint8_t sts){
+void psts(char *message, uint8_t sts)
+{
     printf(message);
     printf(";; status: %d\n", sts);
+}
+
+// RX Event handlers, weakly defined in C++ NTS1 object.
+void nts1_handle_note_off_event(const nts1_rx_note_off_t *note_off)
+{
+    printf("note_off %d\n", note_off->note);
+}
+void nts1_handle_note_on_event(const nts1_rx_note_on_t *note_on)
+{
+    printf("note_on %d\n", note_on->note);
+}
+void nts1_handle_step_tick_event(void)
+{
+    printf("tick\n");
+}
+void nts1_handle_unit_desc_event(const nts1_rx_unit_desc_t *unit_desc)
+{
+    printf("unit_desc %s %d %d %d\n",
+           unit_desc->name,
+           unit_desc->main_id,
+           unit_desc->sub_id,
+           unit_desc->param_count);
+}
+void nts1_handle_edit_param_desc_event(const nts1_rx_edit_param_desc_t *param_desc)
+{
+    printf("edit_param %s %d %d %d %d %d\n",
+           param_desc->name,
+           param_desc->main_id,
+           param_desc->sub_id,
+           param_desc->value_type,
+           param_desc->min,
+           param_desc->max);
+}
+void nts1_handle_value_event(const nts1_rx_value_t *value)
+{
+    printf("value %d %d %d %d %d\n",
+           value->req_id,
+           value->main_id,
+           value->sub_id,
+           value->padding,
+           value->value);
+}
+void nts1_handle_param_change(const nts1_rx_param_change_t *param_change)
+{
+    printf("param_change %d %d %d %d\n",
+           param_change->param_id,
+           param_change->param_subid,
+           param_change->msb,
+           param_change->lsb);
 }
 
 void app_main(void)
@@ -34,21 +84,29 @@ void app_main(void)
     uint8_t note = 0;
     uint8_t increase = 1;
     uint8_t velo = 100;
-
+    int n = 0;
     while (1)
     {
-        //psts("idle", nts1_idle());
+        n++;
+        // psts("idle", nts1_idle());
         nts1_idle();
+        if (n != 10000)
+        {
+            continue;
+        }
+        n = 0;
 
-        // psts("note on", nts1_note_on(note, velo));
-        nts1_note_on(note, velo);
+        psts("note on", nts1_note_on(note, velo));
+
+        // nts1_note_on(note, velo);
 
         // if we get to the max number, change the direction
-        if (note == 127)
+        if (note >= 127)
         {
             increase = 0;
+            nts1_req_sys_version();
         }
-        else if (note == 20)
+        else if (note <= 20)
         {
             increase = 1;
         }
