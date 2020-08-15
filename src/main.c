@@ -22,10 +22,14 @@
 
 #include "nts1_iface.h"
 
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
-void app_main(void){
+void psts(char* message, uint8_t sts){
+    printf(message);
+    printf(";; status: %d\n", sts);
+}
+
+void app_main(void)
+{
     uint8_t init_status = nts1_init();
-    printf("!!!!!!!!!! init %d", init_status);
 
     uint8_t note = 0;
     uint8_t increase = 1;
@@ -33,15 +37,19 @@ void app_main(void){
 
     while (1)
     {
-        // printf("note %d\n", note);
+        //psts("idle", nts1_idle());
         nts1_idle();
 
+        // psts("note on", nts1_note_on(note, velo));
         nts1_note_on(note, velo);
 
         // if we get to the max number, change the direction
-        if (note == 127){
+        if (note == 127)
+        {
             increase = 0;
-        } else if (note == 20){
+        }
+        else if (note == 20)
+        {
             increase = 1;
         }
         // increase or decrease the note number
