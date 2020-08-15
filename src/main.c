@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,6 +15,7 @@
 // #include "lwip/igmp.h"
 
 #include "esp_system.h"
+#include "bootloader_random.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
 #include "soc/rtc_periph.h"
@@ -80,10 +82,13 @@ void nts1_handle_param_change(const nts1_rx_param_change_t *param_change)
 void app_main(void)
 {
     uint8_t init_status = nts1_init();
+    bootloader_random_enable();
 
     uint8_t note = 0;
     uint8_t increase = 1;
     uint8_t velo = 100;
+    uint8_t param_val = 0;
+
     int n = 0;
     while (1)
     {
@@ -96,19 +101,28 @@ void app_main(void)
         }
         n = 0;
 
-        psts("note on", nts1_note_on(note, velo));
-
-        // nts1_note_on(note, velo);
+        //psts("note on", nts1_note_on(note, velo));
 
         // if we get to the max number, change the direction
         if (note >= 127)
         {
             increase = 0;
-            nts1_req_sys_version();
         }
         else if (note <= 20)
         {
             increase = 1;
+        }
+        else
+        {
+            nts1_param_change(k_param_id_osc_base, k_param_subid_osc_edit1, param_val);
+            nts1_param_change(k_param_id_osc_base, k_param_subid_osc_edit2, param_val);
+            nts1_param_change(k_param_id_osc_base, k_param_subid_osc_edit3, param_val);
+            nts1_param_change(k_param_id_osc_base, k_param_subid_osc_edit4, param_val);
+            nts1_param_change(k_param_id_osc_base, k_param_subid_osc_edit5, param_val);
+            nts1_param_change(k_param_id_osc_base, k_param_subid_osc_edit6, param_val);
+            param_val = esp_random() % 126;
+
+            nts1_note_on(note, velo);
         }
         // increase or decrease the note number
         note = increase ? note + 1 : note - 1;
