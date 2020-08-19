@@ -1,0 +1,3 @@
+[submodule "lib/korg-nts-1-lib"]
+	path = lib/korg-nts-1-lib
+	url = git@github.com:eudes/korg-nts-1-lib.git
