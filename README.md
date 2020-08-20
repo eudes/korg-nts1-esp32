@@ -773,6 +773,7 @@ The code as-is is not very efficient, and I get glitches from time to time. I'm 
 - Add some info on how I used Pulseview to debug the wiring.
 - Add a proper diagram for the connections.
 - Test whether making all the connections present in the schematics is necessary.
+  * It seems pin RH6 must be connected to 3v3 for the NTS-1 to send commands back.
 - Test more messages.
 - Work on separating the not-STM32-specific stuff into another class, and using the resulting library in the project.
 - Maybe try to propose the changes to the main `nts-1-customizations` repo? Or publish this as a separate library so that it can be used in ESP32 platformio projects.
