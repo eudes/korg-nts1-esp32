@@ -653,6 +653,8 @@ We can translate the hex strings into binary bytes and look for 1x111xxx.To make
 
 However, in my many attempts to receive something intelligible from the NTS1, I failed misserably. I supect my SPI timing is a bit off. I did get to send note-on messages and make it sound, though.
 
+**Update**: I managed to get messages from the NTS-1 eventually. The problem at this point was that you need to pull one of the NTS-1 pins up in order to make it talk back to the panel, which I wasn't doing. This was present in the reference schematic, but up until this point I was going with just a "minimal" connection, meaning only the SPI and ACK pins connected.
+
 #### A tribute to lost time
 I'm making an aside here to say that, when I got to this point of the analysis (reading the data from the NTS1), I lost a couple of evenings because, of pin misnomer (MISO for MOSI etc.), and because, apparently, you cannot simply connect your ground to any of the available grounds. I only managed to make it work when I connected the RHS pin 1 ground to my ground. The rest of them (which I assumed should have worked the same), did not work properly. I guess, even though they are sent to ground **in the reference panel**, they are not connected to ground in the NTS1.
 
@@ -759,24 +761,259 @@ With this we can test our assumptions and build a firmware that will send note-o
 ------
 
 ## Refactoring for multiple architecture support
-In order to make the original Arduino libray work for both the ESP32 and the STM32, we need first to refactor the original to select the appropiate implementation at compile time.
+### Compile-time selection
+In order to make the original Arduino libray work for both the ESP32 and the STM32, we need first to refactor the original to select the appropiate implementation at compile time. We can achieve this by using compile-time flags.
 
-### 
+Both the STM32 and the ESP32 provide flags when compiling the project that you can use to detect which kind of platform your compiling for. We can leverage this by surrounding our framework-specific code in preprocessor if statements, so that only the code for the implementation is built.
+
+I created a new file `nts1_stm32.c`, where I'll put the STM32-specific code. I'll do the same for the STM32 code.
+```c
+#if defined(STM32F0xx)
+// the code
+#endif
+```
+
+### Separating the specifics
+From my analysis of the code, I identified the STM32-specific code and moved it to `nts1_stm32.c`.
+I also created a new header file `nts1_impl.h` that will declare the specific elements that need to be accesible from the generic code (which will stay in `nts1_iface.h` and `nts1_iface.c`). This new header also marks the way for new implementations, since it declares which functions need to be implemented to support any other architecture/framework.
+
+### The ESP32 implementation
+We now have a clear-cut interface that we need to implement (`nts1_impl.h`) for the ESP32, so let's take a look at how to replicate what the STM32 code is doing, for the ESP32.
+
+```c
+nts1_status_t nts1_init();
+nts1_status_t nts1_idle();
+```
+
+#### nts1_init()
+The first thing to do is initialize the device to prepare it to talk with the NTS-1. This is done in the `nts1_init()` method. For the ESP32, we can do it as follows:
+```c
+
+nts1_status_t nts1_init()
+{
+  // Init the ACK GPIO pin
+  s_ack_init();
+
+  // Empties the buffers for transmission and reception
+  // and reset counters
+  s_panel_rx_status = 0;
+  s_panel_rx_data_cnt = 0;
+  SPI_RX_BUF_RESET();
+  SPI_TX_BUF_RESET();
+
+  // More on this below
+  nts1_status_t res = s_spi_init();
+
+  if (res != k_nts1_status_ok)
+  {
+    return res;
+  }
+
+  // Sets the ACK pin to 1
+  // More below
+  s_port_startup_ack();
+  s_started = true;
+
+  return k_nts1_status_ok;
+}
+
+// Called after a transaction is queued and ready for pickup by master. We use this to set the ACK line high.
+void s_spi_irq_handler_post_setup(spi_slave_transaction_t *trans)
+{
+    s_port_startup_ack();
+    ready_transactions += 1;
+}
+
+// Called after transaction is sent/received. We use this to set the ACK line low.
+void s_spi_irq_handler_post_transaction(spi_slave_transaction_t *trans)
+{
+    s_port_wait_ack();
+}
+
+void s_ack_init()
+{
+    // Configuration for the handshake line
+    gpio_config_t io_conf = {
+        .mode = GPIO_MODE_OUTPUT,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask = (1 << ACK_PIN)};
+
+    //Configure handshake line as output
+    gpio_config(&io_conf);
+}
+
+nts1_status_t s_spi_init()
+{
+    //Configuration for the SPI bus
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = SPI_MOSI_PIN,
+        .miso_io_num = SPI_MISO_PIN,
+        .sclk_io_num = SPI_SCK_PIN,
+    };
+
+    //Configuration for the SPI slave interface
+    spi_slave_interface_config_t slvcfg = {
+        .mode = SPI_MODE,
+        .spics_io_num = SPI_CS_PIN,
+        .queue_size = 0xFFF,
+        .flags = SPI_BITORDER,
+        .post_setup_cb = s_spi_irq_handler_post_setup,
+        .post_trans_cb = s_spi_irq_handler_post_transaction,
+    };
+
+    // Pull down on the Chip Select pin to make it always on
+    gpio_set_pull_mode(SPI_CS_PIN, GPIO_PULLDOWN_ONLY);
+
+    // Pull the SPI lines up (as per the schematics)
+    gpio_set_pull_mode(SPI_SCK_PIN, GPIO_PULLUP_ONLY); // (CPOL = 1, normally high)
+    gpio_set_pull_mode(SPI_MISO_PIN, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(SPI_MOSI_PIN, GPIO_PULLUP_ONLY);
+
+    //Initialize SPI slave interface
+    if (!spi_slave_initialize(S_SPI_HOST, &buscfg, &slvcfg, DMA_CHANNEL))
+    {
+        return k_nts1_status_error;
+    }
+
+    s_spi_tx_buf_write(s_dummy_tx_cmd);
+    s_spi_tx_buf_write(s_dummy_tx_cmd);
+    s_spi_tx_buf_write(s_dummy_tx_cmd);
+    s_spi_tx_buf_write(s_dummy_tx_cmd);
+
+    return k_nts1_status_ok;
+}
+
+```
+
+It's all about setting up the SPI slave driver for the ESP32. You'll notice that the interrupt handlers don't do the heavy lifting as the do in the STM32. This is because the slave driver doesn't provide interrupts for the Tx FIFO empty or Rx FIFO not empty, as it does for the STM32. It just provides `transaction` events. So we're moving that part of the process to the `idle` handler instead, and only using the interrupts to change the ACK line.
+
+Note: there are low level interrupts that function similarly to the STM32's, but for the sake of getting something working I went with the simpler, driver provided interrupts.
+
+### nts1_idle
+The idle handler sets up the SPI transactions, by moving the buffer pointers to the correct location, and allowing the SPI driver to write to them directly.
+
+```c
+nts1_status_t nts1_idle()
+{
+    uint8_t txdata;
+    spi_slave_transaction_t transaction;
+    transaction.length = SPI_TRANSACTION_BITS;
+    uint8_t *tx_buf_ptr_first_byte = s_spi_tx_buf + s_spi_tx_ridx;
+
+    // HOST <- PANEL
+    if (!SPI_TX_BUF_EMPTY() && !s_spi_chk_tx_buf_space(SPI_TRANSACTION_BYTES))
+    {
+        // If there's no space for the full transaction, reset the buffer
+        SPI_TX_BUF_RESET();
+    }
+
+    uint8_t tx_added_bytes_ctr = 0;
+    for (; tx_added_bytes_ctr < SPI_TRANSACTION_BYTES; tx_added_bytes_ctr++)
+    {
+        // If there's no data to be sent in the Tx buffer, exit the loop
+        if (SPI_TX_BUF_EMPTY())
+            break;
+
+        // Save a pointer to the current read location on the Tx buffer
+        uint8_t *tx_buf_ptr = s_spi_tx_buf + s_spi_tx_ridx;
+
+        // read it and advance the read idx pointer
+        txdata = s_spi_tx_buf_read();
+
+        // Check if the data is a Status message
+        if (txdata & PANEL_START_BIT)
+        {
+            // Check if there is more data (after the status) to be sent next in the send buffer
+            if (!SPI_TX_BUF_EMPTY())
+            {
+                // Set the END_MARK on the status
+                txdata |= PANEL_CMD_EMARK;
+                // Note: this will set endmark on almost any status, especially those who have pending data,
+                //       which seems to contradict the endmark common usage of marking only the last command of a group
+            }
+        }
+
+        // Save changes to the buffer
+        *tx_buf_ptr = txdata;
+    }
+
+    // If we processed any bytes for the transaction
+    if (tx_added_bytes_ctr)
+    {
+        // Point the transaction's Tx buffer to the first byte we want to send
+        // from the software Tx buffer
+        transaction.tx_buffer = (void *)tx_buf_ptr_first_byte;
+
+        if (!s_spi_chk_rx_buf_space(SPI_TRANSACTION_BITS))
+        {
+            // printf("resetting rx\n");
+            // If there's no space for the full transaction, reset the buffer
+            SPI_RX_BUF_RESET();
+        }
+        // Point the the transaction's Rx buffer to the current Rx write idx
+        // It's important to do the casting to the result of the arithmetic,
+        // if you leave the second parenthesis out, s_spi_rx_buf is converted
+        // to a 32 bit pointer first, and then added s_spi_rx_widx positions
+        // which results in writing beyond the buffer
+        uint32_t *rx_buf_ptr = (uint32_t *) (s_spi_rx_buf + s_spi_rx_widx);
+        // zero out the values; note that rx_buf_ptr points to 32 bits, not 8
+        *rx_buf_ptr = 0;
+        transaction.rx_buffer = (void *)rx_buf_ptr;
+
+        // We always need to increase both counters by the length of the
+        // transaction because the transaction will always read and write
+        // transaction.length bits from the respective buffers
+        for (uint8_t i = 0; i < SPI_TRANSACTION_BYTES; i++)
+        {
+            // Always increase Rx write counter
+            s_spi_rx_widx = SPI_BUF_INC(s_spi_rx_widx, SPI_RX_BUF_SIZE);
+            // Increase Tx read counter if we haven't already in the first loop
+            if (i >= tx_added_bytes_ctr)
+            {
+                s_spi_tx_ridx = SPI_BUF_INC(s_spi_tx_ridx, SPI_TX_BUF_SIZE);
+            }
+        }
+
+        esp_err_t err = spi_slave_queue_trans(S_SPI_HOST, &transaction, SPI_QUEUE_TTW);
+        if(err){
+            // spi  0x3ffb2470
+            // buff 0x3ffb270c
+        }
+    }
+
+    if (ready_transactions)
+    {
+        // It's mandatory to call this function if using spi_slave_queue_trans
+        spi_slave_transaction_t *out;
+        spi_slave_get_trans_result(S_SPI_HOST, &out, SPI_QUEUE_TTW);
+        ready_transactions -= 1;
+    }
+
+    // HOST I/F Give priority to Idle processing of received data
+    // As long as the reception buffer is not empty
+    while (!SPI_RX_BUF_EMPTY())
+    {
+        // Reads from the buffer and executes the handler
+        s_rx_msg_handler(s_spi_rx_buf_read());
+    }
+
+    return k_nts1_status_ok;
+}
+```
+
+## Debugging and testing
+When testing my changes, I got myself in a few weird places. Here are some noteworthy bits of wisdom acquired retrieved from those places:
+- **Pay more attention to the reference schematic**: I had to do all the connections present in the schematics. I started only connecting the SPI and ACK pins, but I didn't get any messages back from the NTS1 this way. Finally connecting the LH6 pin to 3v3 with a pull up resistor got that working.
+- **Be careful with pointer arithmetic**: at some point, I did pointer arithmetic to clear out some bits on the buffers. I wanted to clear out 32 bits using a uint8_t pointer, so I thought: "I'll cast the 8 bit pointer to a 32 bit one, like this `uint32_t *rx_buf_ptr = (uint32_t *) s_spi_rx_buf + s_spi_rx_widx;`, and Bob's your uncle... I was right, it worked, but I also didn't take into account that the casting happens **before** the sum. So I ended up clear up a memory beyond my intended position, which, obviously, broke things in unexpected ways. The fix was as silly as doing the math first, and then casting: `uint32_t *rx_buf_ptr = (uint32_t *) (s_spi_rx_buf + s_spi_rx_widx);`
+- **Use a logic analyzer**: getting a logic analyzer paid off a thousandfold. The chinese clones, paired with Pulseview, are good enough and very cheap. It made it possible to see which lines were sending what. This got me over a few wiring issues quite nicely.
 
 ------
 
 ## Next steps
-The code as-is is not very efficient, and I get glitches from time to time. I'm not convinced that I'm getting the messages as they are being sent. I'm waiting for a logic analyzer to arrive so that I can debug the SPI timing.
-
-- ~~Debug SPI timing.~~ Now working properly (in src/main.c)
 - Fix the examples with the latest changes.
 - Add some info on how I used Pulseview to debug the wiring.
 - Add a proper diagram for the connections.
-- Test whether making all the connections present in the schematics is necessary.
-  * It seems pin RH6 must be connected to 3v3 for the NTS-1 to send commands back.
 - Test more messages.
-- Work on separating the not-STM32-specific stuff into another class, and using the resulting library in the project.
-- Maybe try to propose the changes to the main `nts-1-customizations` repo? Or publish this as a separate library so that it can be used in ESP32 platformio projects.
 - Build an instrument with some sensors and a screen as a proof of concept.
 
 -----
