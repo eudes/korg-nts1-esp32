@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "freertos/FreeRTOSConfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -22,7 +23,18 @@
 #include "esp_log.h"
 #include "esp_spi_flash.h"
 
+#include "driver/gpio.h"
 #include "nts1_iface.h"
+
+#define BLINK_GPIO GPIO_NUM_13
+
+void blink()
+{
+    gpio_set_level(BLINK_GPIO, 1);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+    gpio_set_level(BLINK_GPIO, 0);
+    vTaskDelete(NULL);
+}
 
 void psts(char *message, uint8_t sts)
 {
@@ -33,16 +45,24 @@ void psts(char *message, uint8_t sts)
 // RX Event handlers, weakly defined in C++ NTS1 object.
 void nts1_handle_note_off_event(const nts1_rx_note_off_t *note_off)
 {
-    printf("note_off %d\n", note_off->note);
+    // printf("note_off %d\n", note_off->note);
 }
 void nts1_handle_note_on_event(const nts1_rx_note_on_t *note_on)
 {
-    printf("note_on %d\n", note_on->note);
+    // printf("note_on %d\n", note_on->note);
 }
 void nts1_handle_step_tick_event(void)
 {
-    printf("tick\n");
+    // printf("tick\n");
+    xTaskCreate(
+        blink,          /* Task function. */
+        "another Task", /* name of task. */
+        10000,          /* Stack size of task */
+        NULL,           /* parameter of the task */
+        1,              /* priority of the task */
+        NULL);          /* Task handle to keep track of created task */
 }
+
 void nts1_handle_unit_desc_event(const nts1_rx_unit_desc_t *unit_desc)
 {
     printf("unit_desc %s %d %d %d\n",
@@ -83,6 +103,9 @@ void app_main(void)
 {
     uint8_t init_status = nts1_init();
     bootloader_random_enable();
+    
+    gpio_reset_pin(BLINK_GPIO);
+    gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 
     uint8_t note = 0;
     uint8_t increase = 1;
