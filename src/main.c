@@ -130,6 +130,7 @@ void app_main(void)
         if (note >= 127)
         {
             increase = 0;
+            // nts1_req_ampeg_count();
         }
         else if (note <= 20)
         {
