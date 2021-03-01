@@ -766,7 +766,7 @@ In order to make the original Arduino libray work for both the ESP32 and the STM
 
 Both the STM32 and the ESP32 provide flags when compiling the project that you can use to detect which kind of platform your compiling for. We can leverage this by surrounding our framework-specific code in preprocessor if statements, so that only the code for the implementation is built.
 
-I created a new file `nts1_stm32.c`, where I'll put the STM32-specific code. I'll do the same for the STM32 code.
+I created a new file `nts1_stm32.c`, where I'll put the STM32-specific code. I'll do the same for the ESP32 code.
 ```c
 #if defined(STM32F0xx)
 // the code
